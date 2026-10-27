@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Multi-layer network diagnostic analyzer measuring latency, jitter, packet loss, DNS resolution, and TCP handshake times with explainable troubleshooting.">
+    <title>Internet Quality Analyzer & Connection Troubleshooter</title>
+    <!-- Modern Typography: Outfit & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js for Historical Visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Bar -->
+        <header class="navbar">
+            <div class="navbar-brand">
+                <div class="brand-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="brand-title">NetPulse<span class="accent-dot">.</span>io</h1>
+                    <p class="brand-subtitle">Internet Quality Analyzer & Troubleshooter</p>
+                </div>
+            </div>
+            <div class="navbar-actions">
+                <div class="system-status-chip" id="interface-status-chip">
+                    <span class="status-indicator-dot" id="system-indicator"></span>
+                    <span id="interface-ip-text">Detecting network...</span>
+                </div>
+                <button class="btn btn-secondary" id="btn-export-csv" title="Export historical records to CSV">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Export CSV
+                </button>
+                <button class="btn btn-primary" id="btn-run-diagnostics">
+                    <span class="btn-spinner" id="btn-spinner" style="display: none;"></span>
+                    <svg id="btn-play-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span id="btn-run-text">Run Diagnostics</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Test Controls & Target Selector Drawer -->
+        <section class="controls-card" aria-label="Diagnostic Test Controls">
+            <div class="controls-header">
+                <div class="controls-title-group">
+                    <span class="section-tag">CONFIGURATION & AUTOMATION</span>
+                    <h2>Diagnostic Targets & Periodic Monitoring</h2>
+                </div>
+                <div class="controls-actions-group" style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <div class="monitoring-controls" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <select id="select-monitoring-interval" class="form-select" title="Background monitoring interval">
+                            <option value="60">Every 1 min</option>
+                            <option value="300" selected>Every 5 mins</option>
+                            <option value="900">Every 15 mins</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" id="btn-toggle-monitoring">
+                            <span class="status-indicator-dot" id="monitoring-pulse-dot" style="display: none; width: 6px; height: 6px;"></span>
+                            <span id="btn-monitoring-text">Start Monitoring</span>
+                        </button>
+                    </div>
+                    <div class="probe-count-selector">
+                        <label for="select-probe-count">Probes:</label>
+                        <select id="select-probe-count" class="form-select">
+                            <option value="3">3 (Fast)</option>
+                            <option value="5" selected>5 (Standard)</option>
+                            <option value="10">10 (Accurate)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="target-pills-container" id="target-pills-list">
+                <!-- Dynamically populated from /api/config -->
+                <div class="loading-shimmer" style="height: 38px; width: 100%;"></div>
+            </div>
+        </section>
+
+        <!-- Live Alert Banner (displayed if threshold violations are detected) -->
+        <div class="alert-banner" id="alert-banner" style="display: none; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-md); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: var(--status-critical);">
+            <div class="alert-banner-content" style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.88rem;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <div id="alert-banner-text">Recent threshold violations detected.</div>
+            </div>
+            <button class="btn-chip" id="btn-dismiss-alerts" style="background: rgba(255,255,255,0.08); color: var(--text-primary);">Dismiss</button>
+        </div>
+
+        <!-- Live KPI Metric Cards Grid -->
+        <section class="kpi-grid" aria-label="Key Performance Indicators">
+            <!-- Overall Health Card -->
+            <div class="kpi-card status-card" id="kpi-card-status">
+                <div class="kpi-header">
+                    <span class="kpi-label">OVERALL CONNECTION</span>
+                    <span class="kpi-icon-wrap" id="kpi-status-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 14 14"></polyline>
+                        </svg>
+                    </span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value" id="val-overall-status">Ready</span>
+                </div>
+                <p class="kpi-subtext" id="val-last-tested">Click "Run Diagnostics" to inspect</p>
+            </div>
+
+            <!-- Average Latency Card -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">AVG ICMP LATENCY</span>
+                    <span class="kpi-badge" id="badge-latency">RTT</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value font-mono" id="val-latency">--</span>
+                    <span class="kpi-unit">ms</span>
+                </div>
+                <p class="kpi-subtext" id="subtext-latency">Network Layer (L3 Round Trip)</p>
+            </div>
+
+            <!-- Jitter Card -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">JITTER (VARIABILITY)</span>
+                    <span class="kpi-badge" id="badge-jitter">RFC-STD</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value font-mono" id="val-jitter">--</span>
+                    <span class="kpi-unit">ms</span>
+                </div>
+                <p class="kpi-subtext" id="subtext-jitter">Mean consecutive delay variance</p>
+            </div>
+
+            <!-- Packet Loss Card -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">PACKET LOSS</span>
+                    <span class="kpi-badge" id="badge-loss">DROPS</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value font-mono" id="val-loss">--</span>
+                    <span class="kpi-unit">%</span>
+                </div>
+                <p class="kpi-subtext" id="subtext-loss">Unanswered probe percentage</p>
+            </div>
+
+            <!-- DNS Lookup Card -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">DNS RESOLUTION</span>
+                    <span class="kpi-badge" id="badge-dns">UDP/53</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value font-mono" id="val-dns">--</span>
+                    <span class="kpi-unit">ms</span>
+                </div>
+                <p class="kpi-subtext" id="subtext-dns">Domain name lookup time</p>
+            </div>
+
+            <!-- TCP Handshake Card -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">TCP 3-WAY HANDSHAKE</span>
+                    <span class="kpi-badge" id="badge-tcp">SYN-ACK</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span class="kpi-value font-mono" id="val-tcp">--</span>
+                    <span class="kpi-unit">ms</span>
+                </div>
+                <p class="kpi-subtext" id="subtext-tcp">Transport Layer (L4 connection)</p>
+            </div>
+        </section>
+
+        <!-- Main Content 2-Column Split: Troubleshooting Engine & Historical Charts -->
+        <div class="main-layout-grid">
+            <!-- Left Column: Explainable Troubleshooting Findings -->
+            <section class="panel-card troubleshooting-panel" aria-label="Diagnostic Troubleshooting Findings">
+                <div class="panel-header">
+                    <div class="panel-title-group">
+                        <span class="section-tag">DIAGNOSTIC ENGINE</span>
+                        <h2>Explainable Troubleshooting</h2>
+                    </div>
+                    <span class="findings-count-badge" id="findings-count-badge">0 Findings</span>
+                </div>
+
+                <div class="diagnostic-summary-box" id="diagnostic-summary-box">
+                    <p id="diagnostic-summary-text">Run a diagnostic probe to generate evidence-based troubleshooting findings and root-cause isolation.</p>
+                </div>
+
+                <div class="findings-list" id="findings-list">
+                    <!-- Populated dynamically -->
+                    <div class="empty-state-panel">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        </svg>
+                        <p>No active anomalies detected.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Visual Telemetry Charts & Comparative Benchmarks -->
+            <section class="panel-card charts-panel" aria-label="Visual Network Telemetry">
+                <div class="panel-header">
+                    <div class="panel-title-group">
+                        <span class="section-tag">TELEMETRY</span>
+                        <h2>Historical Latency & Loss</h2>
+                    </div>
+                    <div class="chart-timeframe-selector">
+                        <button class="btn-chip active" data-hours="1">1h</button>
+                        <button class="btn-chip" data-hours="24">24h</button>
+                        <button class="btn-chip" data-hours="168">7d</button>
+                    </div>
+                </div>
+
+                <!-- Latency Chart Canvas -->
+                <div class="chart-wrapper">
+                    <canvas id="latencyTimelineChart"></canvas>
+                </div>
+
+                <!-- DNS Comparative Benchmark Chart Canvas -->
+                <div class="panel-subheader">
+                    <h3>Comparative DNS Resolver Benchmarks (Cold vs Warm)</h3>
+                </div>
+                <div class="chart-wrapper chart-wrapper-secondary">
+                    <canvas id="dnsBenchmarkChart"></canvas>
+                </div>
+            </section>
+        </div>
+
+        <!-- Historical Test Sessions Table -->
+        <section class="panel-card history-panel" aria-label="Historical Test Records">
+            <div class="panel-header">
+                <div class="panel-title-group">
+                    <span class="section-tag">LOGS & AUDIT</span>
+                    <h2>Recent Test Sessions</h2>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn btn-primary btn-sm" id="btn-compare-runs" style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <line x1="4" y1="20" x2="21" y2="3"></line>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <line x1="15" y1="15" x2="21" y2="21"></line>
+                            <line x1="4" y1="4" x2="9" y2="9"></line>
+                        </svg>
+                        Compare Sessions (2)
+                    </button>
+                    <button class="btn btn-secondary btn-sm" id="btn-refresh-history">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="data-table" id="history-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 45px; text-align: center;">Select</th>
+                            <th>Run ID</th>
+                            <th>Timestamp (UTC)</th>
+                            <th>Status</th>
+                            <th>Trigger</th>
+                            <th>Gateway Latency</th>
+                            <th>External Latency</th>
+                            <th>Jitter</th>
+                            <th>Packet Loss</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body">
+                        <tr>
+                            <td colspan="10" class="text-center">Loading recent test sessions...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Test Run Detail Modal -->
+        <div class="modal-overlay" id="modal-test-detail" style="display: none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <h2 id="modal-title">Test Run Details</h2>
+                        <span class="modal-subtitle" id="modal-subtitle">ID: #--</span>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-secondary btn-sm" id="btn-export-single-test-json" title="Download complete test diagnostics as JSON">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Export JSON
+                        </button>
+                        <button class="modal-close-btn" id="modal-close-btn">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body" id="modal-body">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Head-to-Head Comparison Modal -->
+        <div class="modal-overlay" id="modal-comparison" style="display: none;">
+            <div class="modal-card" style="max-width: 900px;">
+                <div class="modal-header">
+                    <div>
+                        <h2 id="modal-compare-title">Differential Session Comparison</h2>
+                        <span class="modal-subtitle" id="modal-compare-subtitle">Comparing Run A vs Run B</span>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-secondary btn-sm" id="btn-export-compare-csv" title="Download differential comparison as CSV">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Export CSV
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="btn-export-compare-json" title="Download differential comparison as JSON">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Export JSON
+                        </button>
+                        <button class="modal-close-btn" id="modal-compare-close-btn">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body" id="modal-compare-body">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p><strong>NetPulse Internet Quality Analyzer</strong> &bull; Computer Networks Academic Project</p>
+            <p class="footer-meta">Multi-layer L2-L7 Diagnosis &bull; Real Monotonic Telemetry &bull; Rule-Based Explainability</p>
+        </footer>
+    </div>
+
+    <!-- Application Dashboard JavaScript -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
